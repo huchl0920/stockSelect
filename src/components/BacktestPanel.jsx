@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { fetchStockHistory } from '../services/historyApi';
+import { fetchCompanyProfile } from '../services/api';
 import { runStrategyMA, runStrategyRSI, runStrategyBreakout, runStrategyBollinger, runStrategyMACD, runStrategySupertrend, analyzeSignal } from '../utils/strategies';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
@@ -10,6 +11,17 @@ const BacktestPanel = ({ stockCode }) => {
   const [analysisSummary, setAnalysisSummary] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  
+  // Company Profile State
+  const [profile, setProfile] = useState(null);
+  const [showFullDesc, setShowFullDesc] = useState(false);
+
+  // Auto-run when props or filters change
+  useEffect(() => {
+    if (stockCode) {
+      runBacktest();
+    }
+  }, [stockCode, strategy, range]);
 
   const runBacktest = async () => {
     if (!stockCode) return;
@@ -17,9 +29,18 @@ const BacktestPanel = ({ stockCode }) => {
     setError(null);
     setResult(null);
     setAnalysisSummary([]);
-
+    setProfile(null);
+    
+    // ... rest of function
     try {
-      const data = await fetchStockHistory(stockCode, range, '1d');
+      // Parallel fetch for speed
+      const [data, profileData] = await Promise.all([
+        fetchStockHistory(stockCode, range, '1d'),
+        fetchCompanyProfile(stockCode)
+      ]);
+      
+      setProfile(profileData);
+
       let stratResult;
       
       // 1. Run Selected Backtest
@@ -43,14 +64,15 @@ const BacktestPanel = ({ stockCode }) => {
       const summary = ['MA', 'RSI', 'BREAKOUT', 'BOLLINGER', 'MACD', 'SUPERTREND'].map(type => {
         const analysis = analyzeSignal(data, type);
         let name = '';
-        if (type === 'MA') name = '黃金交叉 (MA)';
-        else if (type === 'RSI') name = 'RSI 反轉';
-        else if (type === 'BREAKOUT') name = '突破新高';
-        else if (type === 'MACD') name = 'MACD 順勢';
-        else if (type === 'SUPERTREND') name = 'Supertrend';
-        else name = '布林通道';
+        let logic = '';
+        if (type === 'MA') { name = '黃金交叉 (MA)'; logic = '短週突破長週線，動能轉強'; }
+        else if (type === 'RSI') { name = 'RSI 反轉'; logic = 'RSI 低檔超賣區反彈'; }
+        else if (type === 'BREAKOUT') { name = '突破新高'; logic = '突破兩年新高價，無套牢賣壓'; }
+        else if (type === 'MACD') { name = 'MACD 順勢'; logic = 'MACD 柱狀體翻紅/黃金交叉'; }
+        else if (type === 'SUPERTREND') { name = 'Supertrend'; logic = '趨勢指標翻多，順勢操作'; }
+        else { name = '布林通道'; logic = '觸及下通道反彈 (均值回歸)'; }
         
-        return { type, name, ...analysis };
+        return { type, name, logic, ...analysis };
       });
       setAnalysisSummary(summary);
 
@@ -66,6 +88,55 @@ const BacktestPanel = ({ stockCode }) => {
       <h3 className="text-xl font-bold text-slate-100 mb-4 flex items-center gap-2">
         <span className="text-blue-400">📊</span> 策略回測與診斷
       </h3>
+
+      {/* Company Profile Section */}
+      {profile && (
+        <div className="mb-6 p-4 bg-slate-700/30 rounded-xl border border-slate-600/50">
+           <div className="flex flex-wrap gap-2 mb-2">
+              <span className="px-2 py-0.5 bg-blue-500/20 text-blue-300 text-xs rounded border border-blue-500/30">
+                {profile.sector || '其他板塊'}
+              </span>
+              <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 text-xs rounded border border-purple-500/30">
+                {profile.industry || '產業不詳'}
+              </span>
+           </div>
+           <p className={`text-sm text-slate-300 leading-relaxed ${!showFullDesc && 'line-clamp-2'}`}>
+              {profile.description || '暫無公司簡介'}
+           </p>
+           {profile.description && profile.description.length > 100 && (
+             <button 
+               onClick={() => setShowFullDesc(!showFullDesc)}
+               className="text-xs text-blue-400 hover:text-blue-300 mt-1"
+             >
+                {showFullDesc ? '收起' : '展開更多...'}
+             </button>
+           )}
+        </div>
+      )}
+
+      {/* Recommended Strategy Highlight */}
+      {analysisSummary.some(s => s.signal === 'BUY') && (
+         <div className="mb-6 p-4 bg-gradient-to-r from-yellow-900/20 to-slate-800/50 border border-yellow-500/30 rounded-xl flex items-start gap-3">
+            <div className="text-2xl">💡</div>
+            <div>
+               <h4 className="font-bold text-yellow-100 text-sm mb-1">AI 投資觀點</h4>
+               <p className="text-sm text-slate-300">
+                  此標的目前出現 
+                  <span className="font-bold text-yellow-400 mx-1">
+                    {analysisSummary.filter(s => s.signal === 'BUY').length} 個買進訊號
+                  </span>。
+                  主要推薦原因：
+                  <ul className="list-disc list-inside mt-1 text-slate-400 text-xs space-y-1">
+                     {analysisSummary.filter(s => s.signal === 'BUY').map(s => (
+                        <li key={s.type}>
+                           <span className="text-slate-200 font-bold">{s.name}</span>: {s.details} ({s.logic})
+                        </li>
+                     ))}
+                  </ul>
+               </p>
+            </div>
+         </div>
+      )}
       
       <div className="flex flex-wrap gap-4 items-end mb-6">
         <div>

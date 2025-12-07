@@ -16,20 +16,28 @@ export const fetchStockHistory = async (code, range = '2y', interval = '1d') => 
   }
 
   try {
-    // Yahoo Finance Ticker format for Taiwan: 2330.TW
-    const ticker = `${code}.TW`;
-    const url = `/api/yahoo/v8/finance/chart/${ticker}?range=${range}&interval=${interval}`;
-
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`History API Error: ${response.status}`);
+    // Helper to fetch valid data
+    const fetchYahoo = async (suffix) => {
+      const ticker = `${code}${suffix}`;
+      const url = `/api/yahoo/v8/finance/chart/${ticker}?range=${range}&interval=${interval}`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const json = await res.json();
+      const result = json.chart.result?.[0];
+      if (!result) return null;
+      return result;
     }
 
-    const data = await response.json();
-    const result = data.chart.result?.[0];
+    // Attempt 1: Try .TW (TSE)
+    let result = await fetchYahoo('.TW');
+    
+    // Attempt 2: Try .TWO (OTC) if .TW failed
+    if (!result) {
+        result = await fetchYahoo('.TWO');
+    }
 
     if (!result) {
-      throw new Error('查無歷史資料');
+      throw new Error('查無歷史資料 (404 Not Found)');
     }
 
     const timestamps = result.timestamp || [];

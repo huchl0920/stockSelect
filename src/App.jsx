@@ -48,7 +48,6 @@ function App() {
       setStock(data);
       // Auto switch to quote tab if finding new stock, unless in backtest/screener?
       // User might be in backtest mode, let's stay there.
-      if (activeTab === 'daily') setActiveTab('quote'); // Switch to quote if checking from daily list
     } catch (err) {
       setError(err.message);
     } finally {
@@ -178,7 +177,6 @@ function App() {
           {activeTab === 'daily' && (
              <DailyPicks onSelectStock={(code) => {
                setSearchCode(code);
-               handleSearch(code);
                setActiveTab('backtest'); // Switch to backtest for deep dive
              }} />
           )}

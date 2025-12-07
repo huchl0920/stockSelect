@@ -75,3 +75,33 @@ export const fetchStockInfo = async (code) => {
     throw new Error(error.message || '無法取得股票資訊');
   }
 };
+
+export const fetchCompanyProfile = async (code) => {
+  try {
+    const fetchProfile = async (suffix) => {
+       const ticker = `${code}${suffix}`;
+       const url = `/api/yahoo/v10/finance/quoteSummary/${ticker}?modules=assetProfile`;
+       const res = await fetch(url);
+       if (!res.ok) return null;
+       const data = await res.json();
+       return data.quoteSummary?.result?.[0]?.assetProfile;
+    }
+
+    let profile = await fetchProfile('.TW');
+    if (!profile) {
+       profile = await fetchProfile('.TWO');
+    }
+
+    if (!profile) return null;
+
+    return {
+      sector: profile.sector,
+      industry: profile.industry,
+      description: profile.longBusinessSummary,
+      website: profile.website
+    };
+  } catch (err) {
+    console.error("Profile Fetch Error:", err);
+    return null;
+  }
+};
