@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { POPULAR_STOCKS } from '../data/stocks';
 import { fetchStockHistory } from '../services/historyApi';
-import { runStrategyMA, runStrategyRSI, runStrategyBreakout, runStrategyBollinger, analyzeSignal } from '../utils/strategies';
+import { runStrategyMA, runStrategyRSI, runStrategyBreakout, runStrategyBollinger, runStrategyMACD, runStrategySupertrend, analyzeSignal } from '../utils/strategies';
 
 const ScreenerPanel = ({ onSelectStock }) => {
   const [strategy, setStrategy] = useState('MA');
@@ -33,8 +33,12 @@ const ScreenerPanel = ({ onSelectStock }) => {
              stats = runStrategyRSI(data);
           } else if (strategy === 'BREAKOUT') {
              stats = runStrategyBreakout(data);
-          } else {
+          } else if (strategy === 'BOLLINGER') {
              stats = runStrategyBollinger(data);
+          } else if (strategy === 'MACD') {
+             stats = runStrategyMACD(data);
+          } else {
+             stats = runStrategySupertrend(data);
           }
 
           // Analyze Signal (Today's state)
@@ -44,10 +48,14 @@ const ScreenerPanel = ({ onSelectStock }) => {
              ...stock,
              winRate: stats.winRate,
              totalReturn: stats.totalReturn,
+             avgTradeReturn: stats.avgTradeReturn, // Expected Value per Trade
              tradeCount: stats.trades.length,
              signal: signalAnalysis.signal,          // 'BUY', 'SELL', null
              prediction: signalAnalysis.prediction,  // 'APPROACHING_BUY', etc
-             details: signalAnalysis.details
+             details: signalAnalysis.details,
+             suggestedEntry: signalAnalysis.suggestedEntry,
+             suggestedTarget: signalAnalysis.suggestedTarget,
+             suggestedStopLoss: signalAnalysis.suggestedStopLoss
           };
         } catch (err) {
           return null;
@@ -115,6 +123,8 @@ const ScreenerPanel = ({ onSelectStock }) => {
              <option value="RSI">RSI 反轉 (RSI Reversal)</option>
              <option value="BREAKOUT">突破近兩年新高 (Breakout 2Y)</option>
              <option value="BOLLINGER">布林通道回歸 (High Win Rate)</option>
+             <option value="MACD">MACD 順勢交易 (Trend)</option>
+             <option value="SUPERTREND">Supertrend 趨勢跟隨 (Low Risk)</option>
            </select>
          </div>
 
@@ -147,9 +157,11 @@ const ScreenerPanel = ({ onSelectStock }) => {
                  <tr>
                    <th className="px-4 py-3">Status</th>
                    <th className="px-4 py-3">Code</th>
-                   <th className="px-4 py-3">Name</th>
+                   <th className="px-4 py-3 text-right">Entry</th>
+                   <th className="px-4 py-3 text-right">Target</th>
+                   <th className="px-4 py-3 text-right">Stop Loss</th>
                    <th className="px-4 py-3 text-right">Win Rate</th>
-                   <th className="px-4 py-3 text-right">Return</th>
+                   <th className="px-4 py-3 text-right">Exp. Return</th>
                    <th className="px-4 py-3 text-center">Action</th>
                  </tr>
                </thead>
@@ -160,19 +172,27 @@ const ScreenerPanel = ({ onSelectStock }) => {
                         {row.signal === 'BUY' && <span className="px-2 py-0.5 rounded text-xs font-bold bg-green-500/20 text-green-400 border border-green-500/30">🟢 BUY NOW</span>}
                         {row.signal === 'SELL' && <span className="px-2 py-0.5 rounded text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/30">🔴 SELL</span>}
                         
-                        {row.prediction === 'APPROACHING_BUY' && <span className="px-2 py-0.5 rounded text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30 ml-1">🔵 WATCH</span>}
-                        {row.prediction === 'APPROACHING_SELL' && <span className="px-2 py-0.5 rounded text-xs font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30 ml-1">🟠 WATCH</span>}
+                        {row.prediction === 'APPROACHING_BUY' && <span className="px-2 py-0.5 rounded text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30 ml-1">🔵 NEAR BUY</span>}
+                        {row.prediction === 'APPROACHING_SELL' && <span className="px-2 py-0.5 rounded text-xs font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30 ml-1">🟠 NEAR SELL</span>}
                         
                         {!row.signal && !row.prediction && <span className="text-slate-600">-</span>}
                      </td>
-                     <td className="px-4 py-3 font-mono text-blue-300">{row.code}</td>
-                     <td className="px-4 py-3 font-bold text-slate-200">
-                        {row.name}
-                        <div className="text-[10px] font-normal text-slate-500">{row.details}</div>
+                     <td className="px-4 py-3 font-mono text-blue-300">
+                        {row.code}
+                        <div className="text-[10px] text-slate-400 truncate max-w-[80px]">{row.name}</div>
+                     </td>
+                     <td className="px-4 py-3 text-right text-yellow-400 font-mono">
+                        {row.suggestedEntry ? row.suggestedEntry.toFixed(1) : '-'}
+                     </td>
+                     <td className="px-4 py-3 text-right text-emerald-400 font-mono">
+                        {row.suggestedTarget ? row.suggestedTarget.toFixed(1) : '-'}
+                     </td>
+                     <td className="px-4 py-3 text-right text-red-400 font-mono">
+                        {row.suggestedStopLoss ? row.suggestedStopLoss.toFixed(1) : '-'}
                      </td>
                      <td className="px-4 py-3 text-right text-slate-400">{row.winRate.toFixed(0)}%</td>
-                     <td className={`px-4 py-3 text-right font-bold ${row.totalReturn >= 0 ? 'text-red-400' : 'text-green-400'}`}>
-                       {row.totalReturn.toFixed(1)}%
+                     <td className={`px-4 py-3 text-right font-bold ${row.avgTradeReturn >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                       {row.avgTradeReturn.toFixed(1)}%
                      </td>
                      <td className="px-4 py-3 text-center">
                        <button 

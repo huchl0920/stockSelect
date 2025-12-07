@@ -98,8 +98,9 @@ export const runStrategyMA = (data, shortPeriod = 5, longPeriod = 20) => {
   const winTrades = trades.filter(t => t.returnPercent > 0);
   const winRate = trades.length > 0 ? (winTrades.length / trades.length) * 100 : 0;
   const totalReturn = ((capital - 100000) / 100000) * 100;
+  const avgTradeReturn = trades.length > 0 ? trades.reduce((acc, t) => acc + t.returnPercent, 0) / trades.length : 0;
 
-  return { trades, winRate, totalReturn, log };
+  return { trades, winRate, totalReturn, avgTradeReturn, log };
 };
 
 // Strategy 2: RSI Reversal
@@ -142,8 +143,9 @@ export const runStrategyRSI = (data, period = 14) => {
   const winTrades = trades.filter(t => t.returnPercent > 0);
   const winRate = trades.length > 0 ? (winTrades.length / trades.length) * 100 : 0;
   const totalReturn = ((capital - 100000) / 100000) * 100;
+  const avgTradeReturn = trades.length > 0 ? trades.reduce((acc, t) => acc + t.returnPercent, 0) / trades.length : 0;
 
-  return { trades, winRate, totalReturn, log };
+  return { trades, winRate, totalReturn, avgTradeReturn, log };
 };
 
 // Strategy 3: Breakout 2-Year High
@@ -201,8 +203,9 @@ export const runStrategyBreakout = (data, lookbackDays = 500) => { // ~2 years t
   const winTrades = trades.filter(t => t.returnPercent > 0);
   const winRate = trades.length > 0 ? (winTrades.length / trades.length) * 100 : 0;
   const totalReturn = ((capital - 100000) / 100000) * 100;
+  const avgTradeReturn = trades.length > 0 ? trades.reduce((acc, t) => acc + t.returnPercent, 0) / trades.length : 0;
 
-  return { trades, winRate, totalReturn, log };
+  return { trades, winRate, totalReturn, avgTradeReturn, log };
 };
 
 // Strategy 4: Bollinger Band Reversion
@@ -267,23 +270,238 @@ export const runStrategyBollinger = (data, period = 20, stdDev = 2) => {
   const winTrades = trades.filter(t => t.returnPercent > 0);
   const winRate = trades.length > 0 ? (winTrades.length / trades.length) * 100 : 0;
   const totalReturn = ((capital - 100000) / 100000) * 100;
+  const avgTradeReturn = trades.length > 0 ? trades.reduce((acc, t) => acc + t.returnPercent, 0) / trades.length : 0;
 
-  return { trades, winRate, totalReturn, log };
+  return { trades, winRate, totalReturn, avgTradeReturn, log };
+};
+
+// Helper: Calculate EMA
+const calculateEMA = (data, period) => {
+  const k = 2 / (period + 1);
+  const ema = [data[0].close];
+  for (let i = 1; i < data.length; i++) {
+    ema.push(data[i].close * k + ema[i - 1] * (1 - k));
+  }
+  return ema;
+};
+
+// Helper: Calculate MACD
+const calculateMACD = (data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) => {
+  const emaFast = calculateEMA(data, fastPeriod);
+  const emaSlow = calculateEMA(data, slowPeriod);
+  const macdLine = emaFast.map((v, i) => v - emaSlow[i]);
+  
+  // Calculate Signal Line (EMA of MACD Line)
+  const k = 2 / (signalPeriod + 1);
+  const signalLine = [];
+  // Skip initial period where Slow EMA is stabilizing, but here we just compute all
+  signalLine[0] = macdLine[0];
+  for(let i=1; i<macdLine.length; i++){
+      signalLine.push(macdLine[i] * k + signalLine[i-1] * (1-k));
+  }
+  
+  const histogram = macdLine.map((v, i) => v - signalLine[i]);
+  return { macdLine, signalLine, histogram };
+};
+
+// Helper: Calculate ATR
+const calculateATR = (data, period = 14) => {
+  const tr = [0];
+  for(let i=1; i<data.length; i++){
+     const high = data[i].high;
+     const low = data[i].low;
+     const prevClose = data[i-1].close;
+     const val = Math.max(high-low, Math.abs(high-prevClose), Math.abs(low-prevClose));
+     tr.push(val);
+  }
+  
+  // Wilder's Smoothing
+  const atr = [tr[0]];
+  for(let i=1; i<tr.length; i++){
+     atr.push((atr[i-1] * (period-1) + tr[i]) / period);
+  }
+  return atr;
+};
+
+// Helper: Calculate Supertrend
+const calculateSupertrend = (data, period = 10, multiplier = 3) => {
+  const atr = calculateATR(data, period);
+  const supertrend = []; // { value, direction: 1 (Up) or -1 (Down) }
+  const basicUpperBand = [];
+  const basicLowerBand = [];
+  const finalUpperBand = [0];
+  const finalLowerBand = [0];
+  
+  // Initialize
+  for(let i=0; i<data.length; i++) {
+     const hl2 = (data[i].high + data[i].low) / 2;
+     const currentATR = atr[i];
+     
+     basicUpperBand.push(hl2 + (multiplier * currentATR));
+     basicLowerBand.push(hl2 - (multiplier * currentATR));
+     
+     if (i === 0) {
+        supertrend.push({ value: basicLowerBand[0], direction: 1 });
+        continue;
+     }
+
+     // Final Upper Band
+     if (basicUpperBand[i] < finalUpperBand[i-1] || data[i-1].close > finalUpperBand[i-1]) {
+        finalUpperBand.push(basicUpperBand[i]);
+     } else {
+        finalUpperBand.push(finalUpperBand[i-1]);
+     }
+
+     // Final Lower Band
+     if (basicLowerBand[i] > finalLowerBand[i-1] || data[i-1].close < finalLowerBand[i-1]) {
+        finalLowerBand.push(basicLowerBand[i]);
+     } else {
+        finalLowerBand.push(finalLowerBand[i-1]);
+     }
+     
+     // Trend Direction
+     let direction = supertrend[i-1].direction;
+     let value = supertrend[i-1].value;
+     
+     if (direction === 1) { // Prev Uptrend
+        if (data[i].close < finalLowerBand[i]) {
+           direction = -1; // Switch to Downtrend
+           value = finalUpperBand[i];
+        } else {
+           value = finalLowerBand[i];
+        }
+     } else { // Prev Downtrend
+        if (data[i].close > finalUpperBand[i]) {
+           direction = 1; // Switch to Uptrend
+           value = finalLowerBand[i];
+        } else {
+           value = finalUpperBand[i];
+        }
+     }
+     
+     supertrend.push({ value, direction });
+  }
+  return supertrend;
+};
+
+// Strategy 5: MACD
+export const runStrategyMACD = (data) => {
+  const { macdLine, signalLine } = calculateMACD(data);
+  const trades = [];
+  let position = null;
+  let capital = 100000;
+  const log = [];
+
+  for (let i = 26; i < data.length; i++) {
+    const today = data[i];
+    
+    // Golden Cross
+    if (!position && macdLine[i-1] <= signalLine[i-1] && macdLine[i] > signalLine[i]) {
+       position = { date: today.date, price: today.close };
+       log.push({ type: 'BUY', date: today.date, price: today.close, reason: `MACD Cross` });
+    }
+    // Death Cross
+    else if (position && macdLine[i-1] >= signalLine[i-1] && macdLine[i] < signalLine[i]) {
+      const pnl = (today.close - position.price) / position.price;
+      const profit = Math.round(capital * pnl);
+      capital += profit;
+      trades.push({
+        entryDate: position.date,
+        exitDate: today.date,
+        entryPrice: position.price,
+        exitPrice: today.close,
+        returnPercent: pnl * 100,
+        profit: profit
+      });
+      log.push({ type: 'SELL', date: today.date, price: today.close, reason: `MACD Death Cross`, pnl: pnl*100 });
+      position = null;
+    }
+  }
+
+  const winTrades = trades.filter(t => t.returnPercent > 0);
+  const winRate = trades.length > 0 ? (winTrades.length / trades.length) * 100 : 0;
+  const totalReturn = ((capital - 100000) / 100000) * 100;
+  const avgTradeReturn = trades.length > 0 ? trades.reduce((acc, t) => acc + t.returnPercent, 0) / trades.length : 0;
+
+  return { trades, winRate, totalReturn, avgTradeReturn, log };
+};
+
+// Strategy 6: Supertrend
+export const runStrategySupertrend = (data) => {
+  const st = calculateSupertrend(data);
+  const trades = [];
+  let position = null;
+  let capital = 100000;
+  const log = [];
+
+  for (let i = 10; i < data.length; i++) {
+    const today = data[i];
+    const prevTrend = st[i-1].direction;
+    const currTrend = st[i].direction;
+    
+    // Trend Flip Up
+    if (!position && prevTrend === -1 && currTrend === 1) {
+       position = { date: today.date, price: today.close };
+       log.push({ type: 'BUY', date: today.date, price: today.close, reason: `Supertrend Bullish` });
+    }
+    // Trend Flip Down
+    else if (position && prevTrend === 1 && currTrend === -1) {
+      const pnl = (today.close - position.price) / position.price;
+      const profit = Math.round(capital * pnl);
+      capital += profit;
+      trades.push({
+        entryDate: position.date,
+        exitDate: today.date,
+        entryPrice: position.price,
+        exitPrice: today.close,
+        returnPercent: pnl * 100,
+        profit: profit
+      });
+      log.push({ type: 'SELL', date: today.date, price: today.close, reason: `Supertrend Bearish`, pnl: pnl*100 });
+      position = null;
+    }
+  }
+
+  const winTrades = trades.filter(t => t.returnPercent > 0);
+  const winRate = trades.length > 0 ? (winTrades.length / trades.length) * 100 : 0;
+  const totalReturn = ((capital - 100000) / 100000) * 100;
+  const avgTradeReturn = trades.length > 0 ? trades.reduce((acc, t) => acc + t.returnPercent, 0) / trades.length : 0;
+
+  return { trades, winRate, totalReturn, avgTradeReturn, log };
 };
 
 // NEW: Analyze Signals & Predictions
 export const analyzeSignal = (data, strategyType) => {
-  const result = { signal: null, prediction: null, details: '' };
+  const result = { signal: null, prediction: null, details: '', suggestedEntry: null, suggestedTarget: null, suggestedStopLoss: null };
   
-  if (!data || data.length < 30) return result;
+  if (!data || data.length < 60) return result; // Require more data for targets (e.g. SMA60)
 
   const lastIndex = data.length - 1;
   const today = data[lastIndex];
+
+  // Common Calculations for Targets
+  const sma60Array = calculateSMA(data, 60); // Annual/Quarterly line often resistance
+  const sma60 = sma60Array[lastIndex];
+  
+  // Previous 60 days High
+  const historyStart60 = Math.max(0, lastIndex - 60);
+  const maxHigh60 = Math.max(...data.slice(historyStart60, lastIndex).map(d => d.high));
+  
+  // Recent 10 days Low (Swing Low support)
+  const historyStart10 = Math.max(0, lastIndex - 10);
+  const minLow10 = Math.min(...data.slice(historyStart10, lastIndex + 1).map(d => d.low));
 
   if (strategyType === 'MA') {
     const smaShort = calculateSMA(data, 5);
     const smaLong = calculateSMA(data, 20);
     
+    // Target: Previous 60-day High (Resistance)
+    result.suggestedTarget = maxHigh60;
+    // Entry: Current Price (approximating crossover point)
+    result.suggestedEntry = today.close;
+    // Stop: Recent Swing Low of 10 days
+    result.suggestedStopLoss = minLow10;
+
     const prevShort = smaShort[lastIndex - 1];
     const prevLong = smaLong[lastIndex - 1];
     const currShort = smaShort[lastIndex];
@@ -299,12 +517,9 @@ export const analyzeSignal = (data, strategyType) => {
     } 
     // 2. Approaching (Prediction)
     else {
-      // If Short is currently below Long (Bearish) but closing in (gap < 2%) -> Predict Golden Cross
       if (currShort < currLong) {
         const gap = (currLong - currShort) / currLong;
-        // Check if getting closer: shorter gap than yesterday
         const prevGap = (prevLong - prevShort) / prevLong;
-        
         if (gap < 0.02 && gap < prevGap) {
           result.prediction = 'APPROACHING_BUY';
           result.details = `MA Gap: ${(gap*100).toFixed(2)}%`;
@@ -317,6 +532,13 @@ export const analyzeSignal = (data, strategyType) => {
     const currRSI = rsi[lastIndex];
     const prevRSI = rsi[lastIndex - 1];
     
+    // Target: Revert to Mean (SMA 60)
+    result.suggestedTarget = sma60;
+    // Entry: Current Price
+    result.suggestedEntry = today.close;
+    // Stop: Recent Low
+    result.suggestedStopLoss = minLow10;
+
     // 1. Just Matched
     if (prevRSI >= 30 && currRSI < 30) {
        result.signal = 'BUY';
@@ -327,12 +549,10 @@ export const analyzeSignal = (data, strategyType) => {
     }
     // 2. Approaching
     else {
-      // Near Buy Zone (e.g. 30-35) and falling
       if (currRSI >= 30 && currRSI <= 38) {
          result.prediction = 'APPROACHING_BUY';
          result.details = `RSI: ${currRSI.toFixed(1)}`;
       }
-       // Near Sell Zone (e.g. 65-70) and rising
       else if (currRSI >= 62 && currRSI <= 70) {
          result.prediction = 'APPROACHING_SELL';
          result.details = `RSI: ${currRSI.toFixed(1)}`;
@@ -341,9 +561,13 @@ export const analyzeSignal = (data, strategyType) => {
   } else if (strategyType === 'BREAKOUT') {
      const lookbackDays = 500; // 2 Years
      const historyStart = Math.max(0, lastIndex - lookbackDays);
-     const historyData = data.slice(historyStart, lastIndex); // Exclude today for calculating "Previous High"
+     const historyData = data.slice(historyStart, lastIndex); // Exclude today
      
      const maxHigh = Math.max(...historyData.map(d => d.high));
+     
+     result.suggestedEntry = maxHigh; // Breakout Level
+     result.suggestedTarget = maxHigh * 1.2; // +20% Blue Sky Target
+     result.suggestedStopLoss = maxHigh * 0.93; // -7% from breakout point
      
      // 1. Just Matched: Today BROKE the high
      if (today.close > maxHigh && data[lastIndex-1].close <= maxHigh) {
@@ -371,13 +595,17 @@ export const analyzeSignal = (data, strategyType) => {
      const upper = mean + std * stdDev;
      const lower = mean - std * stdDev;
      
+     result.suggestedEntry = lower;
+     result.suggestedTarget = upper;
+     result.suggestedStopLoss = lower * 0.97; // 3% below lower band
+     
      // 1. Just Matched: Touched Lower Today
-     if (today.close < lower) {
+     if (today.low <= lower) {
         result.signal = 'BUY';
-        result.details = `Lower Band ${lower.toFixed(1)}`;
-     } else if (today.close > upper) {
+        result.details = `Touched Lower ${lower.toFixed(1)}`;
+     } else if (today.high >= upper) {
         result.signal = 'SELL';
-        result.details = `Upper Band ${upper.toFixed(1)}`;
+        result.details = `Touched Upper ${upper.toFixed(1)}`;
      }
      // 2. Approaching: Within 1.5% of Lower Band
      else {
@@ -385,6 +613,63 @@ export const analyzeSignal = (data, strategyType) => {
         if (dist < 0.015 && dist > 0) { // Positive dist means above lower band
            result.prediction = 'APPROACHING_BUY';
            result.details = `Near Lower (${(dist*100).toFixed(1)}%)`;
+        }
+     }
+  } else if (strategyType === 'MACD') {
+     const { macdLine, signalLine } = calculateMACD(data);
+     const currMACD = macdLine[lastIndex];
+     const currSignal = signalLine[lastIndex];
+     const prevMACD = macdLine[lastIndex-1];
+     const prevSignal = signalLine[lastIndex-1];
+     
+     result.suggestedEntry = today.close;
+     result.suggestedTarget = maxHigh60;
+     result.suggestedStopLoss = minLow10;
+
+     // Gold Cross
+     if (prevMACD <= prevSignal && currMACD > currSignal) {
+        result.signal = 'BUY';
+        result.details = 'MACD Cross Up';
+     } else if (prevMACD >= prevSignal && currMACD < currSignal) {
+        result.signal = 'SELL';
+        result.details = 'MACD Cross Down';
+     }
+     else {
+        // Approaching
+        const diff = currSignal - currMACD;
+        if (currMACD < currSignal && diff < 0.05 && diff < (signalLine[lastIndex-1]-macdLine[lastIndex-1])) {
+           result.prediction = 'APPROACHING_BUY';
+           result.details = 'MACD Converging';
+        }
+     }
+  } else if (strategyType === 'SUPERTREND') {
+     const st = calculateSupertrend(data);
+     const curr = st[lastIndex];
+     const prev = st[lastIndex-1];
+     
+     // Support/Resistance from Supertrend
+     const stopLevel = curr.value;
+     
+     result.suggestedStopLoss = stopLevel;
+     result.suggestedEntry = today.close;
+     // Target: Risk 1:1.5 or 2? Let's say Distance to Stop * 2
+     const risk = Math.abs(today.close - stopLevel);
+     result.suggestedTarget = today.close + (risk * 2);
+
+     if (prev.direction === -1 && curr.direction === 1) {
+        result.signal = 'BUY';
+        result.details = 'Trend Flip Bullish';
+     } else if (prev.direction === 1 && curr.direction === -1) {
+        result.signal = 'SELL';
+        result.details = 'Trend Flip Bearish';
+     } else {
+        if (curr.direction === 1) {
+           // In Uptrend, watch for pullback
+           const dist = (today.close - stopLevel) / today.close;
+           if (dist < 0.02) {
+              result.prediction = 'APPROACHING_BUY'; // Buy on Dip near Support
+              result.details = 'Near Supertrend Support';
+           }
         }
      }
   }
