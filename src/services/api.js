@@ -105,3 +105,60 @@ export const fetchCompanyProfile = async (code) => {
     return null;
   }
 };
+
+export const fetchStockFundamentals = async (code) => {
+  try {
+    const fetchModules = async (suffix) => {
+       const ticker = `${code}${suffix}`;
+       // Fetching key modules: defaultKeyStatistics (Margins, PEG), financialData (RoE, Revenue), earnings (Trends)
+       const url = `/api/yahoo/v10/finance/quoteSummary/${ticker}?modules=defaultKeyStatistics,financialData,earnings`;
+       const res = await fetch(url);
+       if (!res.ok) return null;
+       const data = await res.json();
+       return data.quoteSummary?.result?.[0];
+    }
+
+    let data = await fetchModules('.TW');
+    if (!data) {
+       console.log(`[Fundamentals] .TW failed or empty for ${code}, trying .TWO`);
+       data = await fetchModules('.TWO');
+    }
+
+    if (!data) {
+       console.warn(`[Fundamentals] No data found for ${code}`);
+       return null;
+    }
+
+    const stats = data.defaultKeyStatistics || {};
+    const finance = data.financialData || {};
+    const earnings = data.earnings || {};
+
+    return {
+      // Profitability
+      roe: finance.returnOnEquity?.raw || 0, // 0.25 = 25%
+      roa: finance.returnOnAssets?.raw || 0,
+      profitMargin: finance.profitMargins?.raw || 0,
+      
+      // Valuation
+      peTrailing: stats.trailingPE?.raw || 0,
+      peForward: stats.forwardPE?.raw || 0,
+      pegRatio: stats.pegRatio?.raw || 0,
+      priceToBook: stats.priceToBook?.raw || 0,
+      
+      // Growth (Quarterly)
+      revenueGrowth: finance.revenueGrowth?.raw || 0, // YoY
+      earningsGrowth: finance.earningsGrowth?.raw || 0, // YoY
+      
+      // Per Share
+      eps: stats.trailingEps?.raw || 0,
+      bookValue: stats.bookValue?.raw || 0,
+
+      // Earnings Trend
+      earningsChart: earnings.earningsChart?.quarterly || []
+    };
+
+  } catch (err) {
+    console.error("Fundamentals Fetch Error:", err);
+    return null;
+  }
+};

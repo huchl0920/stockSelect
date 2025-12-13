@@ -27,8 +27,10 @@ const ScreenerPanel = ({ onSelectStock }) => {
         try {
           const data = await fetchStockHistory(stock.code, range);
           let stats;
-          if (strategy === 'MA') {
-             stats = runStrategyMA(data);
+          if (strategy === 'MA' || strategy === 'MA_SHORT_ALIGN') {
+             stats = runStrategyMA(data, 5, 20);
+          } else if (strategy === 'MA_LONG_ALIGN') {
+             stats = runStrategyMA(data, 20, 60);
           } else if (strategy === 'RSI') {
              stats = runStrategyRSI(data);
           } else if (strategy === 'BREAKOUT') {
@@ -120,6 +122,8 @@ const ScreenerPanel = ({ onSelectStock }) => {
              className="bg-slate-700 text-slate-200 border border-slate-600 rounded px-3 py-2 outline-none focus:ring-2 focus:ring-green-500"
            >
              <option value="MA">黃金交叉 (MA Cross)</option>
+             <option value="MA_SHORT_ALIGN">短期噴發 (5&gt;10&gt;20)</option>
+             <option value="MA_LONG_ALIGN">波段多頭 (20&gt;60&gt;120)</option>
              <option value="RSI">RSI 反轉 (RSI Reversal)</option>
              <option value="BREAKOUT">突破近兩年新高 (Breakout 2Y)</option>
              <option value="BOLLINGER">布林通道回歸 (High Win Rate)</option>

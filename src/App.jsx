@@ -4,6 +4,7 @@ import StockCard from './components/StockCard';
 import BacktestPanel from './components/BacktestPanel';
 import ScreenerPanel from './components/ScreenerPanel';
 import DailyPicks from './components/DailyPicks';
+import HealthCheckPanel from './components/HealthCheckPanel';
 import { fetchStockInfo } from './services/api';
 import { preloadStocks } from './services/historyApi';
 import { ALL_STOCKS } from './data/all_stocks';
@@ -126,6 +127,12 @@ function App() {
            >
              🏆 精選推薦
            </button>
+           <button 
+             onClick={() => setActiveTab('health')}
+              className={`px-6 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === 'health' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}
+           >
+             🩺 操作健檢
+           </button>
         </div>
 
         {/* Content Area */}
@@ -179,6 +186,11 @@ function App() {
                setSearchCode(code);
                setActiveTab('backtest'); // Switch to backtest for deep dive
              }} />
+          )}
+
+          {/* Health Check View */}
+          {activeTab === 'health' && (
+             <HealthCheckPanel defaultCode={searchCode || (stock ? stock.code : '')} />
           )}
 
         </div>

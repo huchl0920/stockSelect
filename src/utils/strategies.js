@@ -672,6 +672,87 @@ export const analyzeSignal = (data, strategyType) => {
            }
         }
      }
+  } else if (strategyType === 'MA_SHORT_ALIGN') {
+     // 5 > 10 > 20
+     const sma5 = calculateSMA(data, 5);
+     const sma10 = calculateSMA(data, 10);
+     const sma20 = calculateSMA(data, 20);
+     
+     const c5 = sma5[lastIndex];
+     const c10 = sma10[lastIndex];
+     const c20 = sma20[lastIndex];
+     const p5 = sma5[lastIndex-1];
+     const p10 = sma10[lastIndex-1];
+     const p20 = sma20[lastIndex-1];
+
+     result.suggestedEntry = today.close;
+     result.suggestedStopLoss = c20 * 0.98; // SL below 20MA
+     result.suggestedTarget = today.close * 1.1; // 10% target for short burst
+
+     // Criteria: 5 > 10 > 20 AND Slope Up (Current > Previous)
+     const isAligned = c5 > c10 && c10 > c20;
+     const isTrendingUp = c5 > p5 && c10 > p10 && c20 > p20;
+     
+     if (isAligned && isTrendingUp) {
+         // Calculate duration of valid alignment
+         let days = 0;
+         for (let i = 0; i < 20; i++) {
+             const idx = lastIndex - i;
+             if (idx < 0) break;
+             if (sma5[idx] > sma10[idx] && sma10[idx] > sma20[idx]) {
+                 days++;
+             } else {
+                 break;
+             }
+         }
+
+         if (days <= 10) {
+             result.signal = 'BUY';
+             result.details = `Upswing (Day ${days})`;
+             
+             if (days === 1) result.details = 'New Eruption (Day 1)';
+         }
+     }
+
+  } else if (strategyType === 'MA_LONG_ALIGN') {
+     // 20 > 60 > 120
+     const sma20 = calculateSMA(data, 20);
+     const sma60 = calculateSMA(data, 60);
+     const sma120 = calculateSMA(data, 120);
+     
+     const c20 = sma20[lastIndex];
+     const c60 = sma60[lastIndex];
+     const c120 = sma120[lastIndex];
+     
+     result.suggestedEntry = today.close;
+     result.suggestedStopLoss = c60; // Stop at Quarter Line
+     result.suggestedTarget = today.close * 1.2; // 20% target
+
+     const isAligned = c20 > c60 && c60 > c120;
+     const p20 = sma20[lastIndex-1]; 
+     const p60 = sma60[lastIndex-1];
+     const p120 = sma120[lastIndex-1];
+     const isTrendingUp = c20 > p20 && c60 > p60 && c120 > p120;
+
+     if (isAligned && isTrendingUp) {
+         // Duration Check
+         let days = 0;
+         for (let i = 0; i < 30; i++) {
+             const idx = lastIndex - i;
+             if (idx < 0) break;
+             if (sma20[idx] > sma60[idx] && sma60[idx] > sma120[idx]) {
+                 days++;
+             } else {
+                 break;
+             }
+         }
+
+         if (days <= 10) {
+             result.signal = 'BUY';
+             result.details = `Trend Start (Day ${days})`;
+             if (days === 1) result.details = 'New Trend (Day 1)';
+         }
+     }
   }
 
   return result;
